@@ -1,0 +1,48 @@
+  - name: "Setting Variables needed right after"
+    set_fact: 
+      client_id:  "{{ AZURE_CLIENT_ID | default(lookup('env', 'AZURE_CLIENT_ID')) }}"
+      client_secret: "{{ AZURE_SECRET | default(lookup('env', 'AZURE_SECRET')) }}"
+      tenant_id: "{{ AZURE_TENANT | default(lookup('env', 'AZURE_TENANT')) }}"
+      subscription_ids: "{{ AZURE_SUBSCRIPTION_ID | default(lookup('env', 'AZURE_SUBSCRIPTION_ID')) }}"
+    no_log: yes # CHANGE TO YES IN PROD
+  
+  - name: Login into Azure Cloud
+    command: /usr/bin/az login --service-principal -u {{ client_id | quote }} -p {{ client_secret | quote }} --tenant {{ tenant_id | quote }}
+    no_log: yes
+  
+  - name: Set active subscription
+    command: /usr/bin/az account set --subscription {{ subscription_ids | quote }}
+    no_log: yes # CHANGE TO YES IN PROD
+
+
+  - name: Setting variable from the script needed to run
+    set_fact: 
+     var_script: "{{ lookup('file', var_automation_id ) }}"                             
+
+  - name: Find VMs in subscription
+    shell: |
+      az vm list --query [].id -o tsv
+    register: vm_ss
+    failed_when: vm_ss.stderr != ""
+
+  - name: Run Selected Automation Script 
+    shell: |    
+      az vm run-command invoke  --command-id RunPowerShellScript \
+      --name  {{ item.split("/")[-1] }} \
+      -g {{ item.split("/")[4] }} \
+      --scripts {{var_script | quote}}  \
+      --parameters 'time=NOW'
+    register: script_run_output
+    loop: "{{vm_ss.stdout_lines}}"
+
+  - name: Restart the VMs if requested
+    shell: |    
+      az vm restart --name  {{ item.split("/")[-1] }} \
+      -g {{ item.split("/")[4] }}       
+    loop: "{{vm_ss.stdout_lines}}"
+    when: var_restart_vm | default(false) | bool 
+  
+  - name: Debugging stdout from previous command
+    debug:
+      msg: "{{ item.stdout }}"  
+    loop: "{{script_run_output.results}}"

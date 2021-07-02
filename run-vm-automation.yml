@@ -1,0 +1,8 @@
+- hosts: "{{ target | default('localhost') }}"
+  connection:  "{% if target != 'localhost' %}ssh{% else %}local{% endif %}"
+  gather_facts: yes
+
+  
+  roles:
+    - role: vm-automation
+          
